@@ -1,0 +1,28 @@
+{
+	"info" : {
+		"name" : "Workshop Inventory Display",
+		"namespace" : "workshop_inventory_display",
+		"version" : 3,
+		"steam_file_id" : "1436923541",
+		"author": "illdred <illdred@gmail.com>",
+		"website": "https://github.com/fraserd/stonehearth-workshop-inventory-display"
+	},
+	"default_locale" : "en",
+	"aliases" : {},
+	"mixintos" : {},
+	"overrides" : {},
+	"components" : {},
+	"controllers" : {},
+
+	"ui": {
+		"html": [
+			"file(ui/game/workshop_inventory_display/workshop_inventory_display.html)"
+		],
+		"js": [
+			"file(ui/game/workshop_inventory_display/workshop_inventory_display.js)"
+		],
+		"less": [
+			"file(ui/game/workshop_inventory_display/workshop_inventory_display.less)"
+		]
+	}
+}
