@@ -22,6 +22,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
     templateName: 'workshop_inventory_display',
     mainDiv: '#workshop_inventory_display',
     defaultMountpoint: '#craftWindow #tabs',
+    uriProperty: 'model',
     currentRecipe: null,
     deployedCount: 0,
     undeployedCount: 0,
@@ -35,9 +36,34 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         }
     },
     inventoryItems: {},
+    citizens: null,
+    equippedItems: null,
+
+    components: {
+        "citizens" : {
+            "*": {
+                "stonehearth:equipment": {
+                    "equipped_items": {
+                        '*' : {
+                            'uri': {},
+                        }
+                    }
+                }
+            }
+        }
+    },
 
     init: function () {
-        this._super(...arguments);
+        var self = this;
+        self._super(...arguments);
+
+        radiant.call('stonehearth:get_population')
+            .done(function(response){
+                if (self.isDestroying || self.isDestroyed) {
+                    return;
+                }
+                self.set('uri', response.population);
+            });
     },
 
     didInsertElement: function () {
@@ -58,6 +84,38 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         this._super();
     },
 
+    _onCitizens: function() {
+        var self = this;
+        var slots = App.characterSheetEquipmentSlots;
+        var citizens = self.get('model.citizens');
+        var allEquipment = [];
+
+        radiant.each(citizens, function(i, citizen) {
+            var citizenEquipment = citizen['stonehearth:equipment'];
+            if(citizenEquipment) {
+                var equipment = citizenEquipment.equipped_items;
+                radiant.each(slots, function(i, slot) {
+                    var equipmentPiece = equipment[slot];
+                    if (equipmentPiece) {
+                        var alias = equipmentPiece.get('uri').__self;
+                        allEquipment.push(alias);
+                    }
+                });
+            }
+        });
+
+        var equipmentGroupedByUri = allEquipment.reduce(function(previousValue, currentValue) {
+            if(previousValue[currentValue]) {
+                previousValue[currentValue].count++;
+            } else {
+                previousValue[currentValue] = { uri: currentValue, count: 1 };
+            }
+            return previousValue;
+        }, {});
+
+        self.set('equippedItems', equipmentGroupedByUri);
+    }.observes('model.citizens'),
+
     _onCurrentRecipeChanged: function() {
         var self = this;
         var currentRecipe = self.currentRecipe;
@@ -69,10 +127,22 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
                     self.basicInventoryTrace = new StonehearthDataTrace(response.tracker, self.itemTraces)
                         .progress(function (response) {
                             var inventoryItems = {};
+                            var equipment = self.get('equippedItems');
+                            console.log(equipment);
+
+                            radiant.each(equipment, function(uri, item) {
+                                var rootUri = uri;
+                                var catalogData = App.catalog.getCatalogData(item.uri);
+                                if(catalogData) {
+                                    rootUri = catalogData['root_entity_uri'];
+                                    self._addItemToInventory(rootUri, item, false, inventoryItems);
+                                }
+                            });
 
                             radiant.each(response.tracking_data, function (uri, item) {
                                 var rootUri = uri;
                                 var isIconic = false;
+                                var catalogData = App.catalog.getCatalogData(item.uri.__self);
                                 if (item.canonical_uri && item.canonical_uri.__self !== item.uri.__self) {
                                     isIconic = true;
                                     // save the original uri
@@ -80,26 +150,11 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
                                     rootUri = item.canonical_uri.__self;
                                     item.uri = rootUri;
                                     item.isIconic = true;
-                                } else if (item.canonical_uri === undefined) { // this should be the case for talisman items
+                                } else if(catalogData.is_item) { // this should be the case for talisman items
                                     isIconic = true;
                                 }
 
-                                // if no record of this item type yet, make one
-                                if (!inventoryItems[rootUri]) {
-                                    inventoryItems[rootUri] = item;
-                                    inventoryItems[rootUri].undeployedCount = 0; // set initial undeployed count
-                                    if (isIconic) {
-                                        // set undeployedCount
-                                        inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
-                                        inventoryItems[rootUri].count = 0; // we just set the item into the array and it is undeployed, so remove the item count
-                                    }
-                                } else {
-                                    if (isIconic) {
-                                        inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
-                                    } else {
-                                        inventoryItems[rootUri].count = inventoryItems[rootUri].count + item.count;
-                                    }
-                                }
+                                self._addItemToInventory(rootUri, item, isIconic, inventoryItems);
                             });
                             // update the inventory items that are read
                             self.inventoryItems = inventoryItems;
@@ -112,7 +167,25 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
                     console.error(response);
                 });
         }
-    }.observes('currentRecipe'),
+    }.observes('equippedItems', 'currentRecipe'),
+
+    _addItemToInventory: function(rootUri, item, isIconic, inventoryItems) {
+        if (!inventoryItems[rootUri]) {
+            inventoryItems[rootUri] = item;
+            inventoryItems[rootUri].undeployedCount = 0; // set initial undeployed count
+            if (isIconic) {
+                // set undeployedCount
+                inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
+                inventoryItems[rootUri].count = 0; // we just set the item into the array and it is undeployed, so remove the item count
+            }
+        } else {
+            if (isIconic) {
+                inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
+            } else {
+                inventoryItems[rootUri].count = inventoryItems[rootUri].count + item.count;
+            }
+        }
+    },
 
     _updateInventoryDisplay: function () {
         var self = this;
