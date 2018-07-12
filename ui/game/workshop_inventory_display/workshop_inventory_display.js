@@ -1,14 +1,25 @@
 $(top).on('stonehearthReady', function () {
+
     App.StonehearthTeamCrafterView.reopen({
-        _workshopInventoryDisplayOnCurrentRecipeChanged: function() {
-            var workshopInventoryDisplayFrame = App.gameView.getView(App.StonehearthWorkshopInventoryDisplayView);
-            if (!workshopInventoryDisplayFrame || workshopInventoryDisplayFrame.isDestroyed) {
-                App.gameView.addView(App.StonehearthWorkshopInventoryDisplayView,
-                    { undeployedCount: 0, deployedCount: 0, currentRecipe: this.get('currentRecipe') });
-            } else {
-                workshopInventoryDisplayFrame.set('currentRecipe', this.get('currentRecipe'));
+        _workshopInventoryDisplayOnIsVisibleChanged: function() {
+            var visible = this.get('isVisible');
+            if(visible) {
+                var workshopInventoryDisplayFrame = App.gameView.getView(App.StonehearthWorkshopInventoryDisplayView);
+                if (!workshopInventoryDisplayFrame || workshopInventoryDisplayFrame.isDestroyed) {
+                    App.gameView.addView(App.StonehearthWorkshopInventoryDisplayView,
+                        {
+                            undeployedCount: 0,
+                            deployedCount: 0,
+                            currentRecipe: this.get('currentRecipe'),
+                            mountPoint: this.$('#craftWindow').find('#tabs').eq(0)
+                        });
+                } else {
+                    workshopInventoryDisplayFrame.set('currentRecipe', this.get('currentRecipe'));
+                    workshopInventoryDisplayFrame.set('mountPoint', this.$('#craftWindow').find('#tabs').eq(0));
+                    workshopInventoryDisplayFrame._relocateTemplate()
+                }
             }
-        }.observes('currentRecipe'),
+        }.observes('isVisible', 'currentRecipe'),
 
         destroy: function() {
             var view = App.gameView.getView(App.StonehearthWorkshopInventoryDisplayView);
@@ -22,6 +33,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
     templateName: 'workshop_inventory_display',
     mainDiv: '#workshop_inventory_display',
     defaultMountpoint: '#craftWindow #tabs',
+    mountPoint: null,
     uriProperty: 'model',
     currentRecipe: null,
     deployedCount: 0,
@@ -128,12 +140,11 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
                         .progress(function (response) {
                             var inventoryItems = {};
                             var equipment = self.get('equippedItems');
-                            console.log(equipment);
 
                             radiant.each(equipment, function(uri, item) {
                                 var rootUri = uri;
                                 var catalogData = App.catalog.getCatalogData(item.uri);
-                                if(catalogData) {
+                                if(catalogData && catalogData['root_entity_uri']) {
                                     rootUri = catalogData['root_entity_uri'];
                                     self._addItemToInventory(rootUri, item, false, inventoryItems);
                                 }
@@ -192,7 +203,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         var currentRecipe = self.currentRecipe;
 
         if (currentRecipe) {
-            var inventoryForCurrentRecipeProduct = self.inventoryItems[currentRecipe.product_uri.__self];
+            var inventoryForCurrentRecipeProduct = self.inventoryItems[currentRecipe['product_uri']];
             if (inventoryForCurrentRecipeProduct) {
                 // update text
                 self.set('undeployedCount', inventoryForCurrentRecipeProduct.undeployedCount);
@@ -204,15 +215,11 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         }
     },
 
-    _relocateTemplate: function (mountpoint) {
+    _relocateTemplate: function () {
         var self = this;
-        var mp = self.defaultMountpoint;
-        if (mountpoint) {
-            mp = mountpoint;
-        }
 
-        var craftWindow = $(mp);
-        var inventoryWindow = $(self.mainDiv);
+        var craftWindow = self.get('mountPoint');
+        var inventoryWindow = $(self.mainDiv).detach();
 
         craftWindow.append(inventoryWindow);
     },
