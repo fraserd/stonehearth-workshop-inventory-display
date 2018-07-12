@@ -203,7 +203,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         var currentRecipe = self.currentRecipe;
 
         if (currentRecipe) {
-            var inventoryForCurrentRecipeProduct = self.inventoryItems[currentRecipe['product_uri']];
+            var inventoryForCurrentRecipeProduct = self.inventoryItems[currentRecipe['product_uri']] || self.inventoryItems[currentRecipe.product_uri.__self];
             if (inventoryForCurrentRecipeProduct) {
                 // update text
                 self.set('undeployedCount', inventoryForCurrentRecipeProduct.undeployedCount);
