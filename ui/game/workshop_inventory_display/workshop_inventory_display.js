@@ -6,17 +6,22 @@ $(top).on('stonehearthReady', function () {
             if(visible) {
                 var workshopInventoryDisplayFrame = App.gameView.getView(App.StonehearthWorkshopInventoryDisplayView);
                 if (!workshopInventoryDisplayFrame || workshopInventoryDisplayFrame.isDestroyed) {
-                    App.gameView.addView(App.StonehearthWorkshopInventoryDisplayView,
+                    workshopInventoryDisplayFrame = App.gameView.addView(App.StonehearthWorkshopInventoryDisplayView,
                         {
-                            undeployedCount: 0,
-                            deployedCount: 0,
                             currentRecipe: this.get('currentRecipe'),
                             mountPoint: this.$('#craftWindow').find('#tabs').eq(0)
                         });
+                    workshopInventoryDisplayFrame.startTracking();
                 } else {
                     workshopInventoryDisplayFrame.set('currentRecipe', this.get('currentRecipe'));
                     workshopInventoryDisplayFrame.set('mountPoint', this.$('#craftWindow').find('#tabs').eq(0));
-                    workshopInventoryDisplayFrame._relocateTemplate()
+                    workshopInventoryDisplayFrame._relocateTemplate();
+                    workshopInventoryDisplayFrame.startTracking();
+                }
+            } else {
+                workshopInventoryDisplayFrame = App.gameView.getView(App.StonehearthWorkshopInventoryDisplayView);
+                if(workshopInventoryDisplayFrame) {
+                    workshopInventoryDisplayFrame.stopTracking();
                 }
             }
         }.observes('isVisible', 'currentRecipe'),
@@ -41,13 +46,13 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
     basicInventoryTrace: null,
     itemTraces: {
         "tracking_data": {
-            "*": {
-                "uri" : {},
-                "canonical_uri" : {}
-            }
+            "*": {}
         }
     },
-    inventoryItems: {},
+    inventoryItems: {
+        equippedItems: {},
+        stockedItems: {}
+    },
     citizens: null,
     equippedItems: null,
 
@@ -56,9 +61,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
             "*": {
                 "stonehearth:equipment": {
                     "equipped_items": {
-                        '*' : {
-                            'uri': {},
-                        }
+                        '*' : {}
                     }
                 }
             }
@@ -109,7 +112,7 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
                 radiant.each(slots, function(i, slot) {
                     var equipmentPiece = equipment[slot];
                     if (equipmentPiece) {
-                        var alias = equipmentPiece.get('uri').__self;
+                        var alias = equipmentPiece.get('uri');
                         allEquipment.push(alias);
                     }
                 });
@@ -130,55 +133,23 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
 
     _onCurrentRecipeChanged: function() {
         var self = this;
-        var currentRecipe = self.currentRecipe;
+        self._updateInventoryDisplay();
+    }.observes('currentRecipe'),
 
-        if (currentRecipe) {
-            //init the inventory and usable object trackers
-            radiant.call_obj('stonehearth.inventory', 'get_item_tracker_command', 'stonehearth:basic_inventory_tracker')
-                .done(function (response) {
-                    self.basicInventoryTrace = new StonehearthDataTrace(response.tracker, self.itemTraces)
-                        .progress(function (response) {
-                            var inventoryItems = {};
-                            var equipment = self.get('equippedItems');
+    _onEquipmentChanged: function() {
+        var self = this;
+        var equipment = self.get('equippedItems');
 
-                            radiant.each(equipment, function(uri, item) {
-                                var rootUri = uri;
-                                var catalogData = App.catalog.getCatalogData(item.uri);
-                                if(catalogData && catalogData['root_entity_uri']) {
-                                    rootUri = catalogData['root_entity_uri'];
-                                    self._addItemToInventory(rootUri, item, false, inventoryItems);
-                                }
-                            });
-
-                            radiant.each(response.tracking_data, function (uri, item) {
-                                var rootUri = uri;
-                                var isIconic = false;
-                                var catalogData = App.catalog.getCatalogData(item.uri.__self);
-                                if (item.canonical_uri && item.canonical_uri.__self !== item.uri.__self) {
-                                    isIconic = true;
-                                    // save the original uri
-                                    item.orig_uri = rootUri;
-                                    rootUri = item.canonical_uri.__self;
-                                    item.uri = rootUri;
-                                    item.isIconic = true;
-                                } else if(catalogData.is_item) { // this should be the case for talisman items
-                                    isIconic = true;
-                                }
-
-                                self._addItemToInventory(rootUri, item, isIconic, inventoryItems);
-                            });
-                            // update the inventory items that are read
-                            self.inventoryItems = inventoryItems;
-                            self._updateInventoryDisplay();
-                        })
-                        .done(function (response) {
-                        });
-                })
-                .fail(function (response) {
-                    console.error(response);
-                });
-        }
-    }.observes('equippedItems', 'currentRecipe'),
+        radiant.each(equipment, function(uri, item) {
+            var rootUri = uri;
+            var catalogData = App.catalog.getCatalogData(item.uri);
+            if(catalogData && catalogData['root_entity_uri']) {
+                rootUri = catalogData['root_entity_uri'];
+                self._addItemToInventory(rootUri, item, false, self.inventoryItems.equippedItems);
+            }
+        });
+        self._updateInventoryDisplay();
+    }.observes('equippedItems'),
 
     _addItemToInventory: function(rootUri, item, isIconic, inventoryItems) {
         if (!inventoryItems[rootUri]) {
@@ -186,14 +157,14 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
             inventoryItems[rootUri].undeployedCount = 0; // set initial undeployed count
             if (isIconic) {
                 // set undeployedCount
-                inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
+                inventoryItems[rootUri].undeployedCount = item.count;
                 inventoryItems[rootUri].count = 0; // we just set the item into the array and it is undeployed, so remove the item count
             }
         } else {
             if (isIconic) {
-                inventoryItems[rootUri].undeployedCount = inventoryItems[rootUri].undeployedCount + item.count;
+                inventoryItems[rootUri].undeployedCount = item.count;
             } else {
-                inventoryItems[rootUri].count = inventoryItems[rootUri].count + item.count;
+                inventoryItems[rootUri].count = item.count;
             }
         }
     },
@@ -203,15 +174,17 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
         var currentRecipe = self.currentRecipe;
 
         if (currentRecipe) {
-            var inventoryForCurrentRecipeProduct = self.inventoryItems[currentRecipe['product_uri']] || self.inventoryItems[currentRecipe.product_uri.__self];
-            if (inventoryForCurrentRecipeProduct) {
-                // update text
-                self.set('undeployedCount', inventoryForCurrentRecipeProduct.undeployedCount);
-                self.set('deployedCount', inventoryForCurrentRecipeProduct.count);
-            } else {
-                self.set('undeployedCount', 0);
-                self.set('deployedCount', 0);
-            }
+            var equippedInventoryForCurrentRecipeProduct = self.inventoryItems.equippedItems[currentRecipe['product_uri']] || self.inventoryItems.equippedItems[currentRecipe['product_uri'].__self];
+            var stockInventoryForCurrentRecipeProduct = self.inventoryItems.stockedItems[currentRecipe['product_uri']] || self.inventoryItems.stockedItems[currentRecipe['product_uri'].__self];
+
+            var equippedCount = equippedInventoryForCurrentRecipeProduct ? equippedInventoryForCurrentRecipeProduct.count : 0;
+            var stockDeployedCount = stockInventoryForCurrentRecipeProduct ? stockInventoryForCurrentRecipeProduct.count : 0;
+            var stockUndeployedCount = stockInventoryForCurrentRecipeProduct ? stockInventoryForCurrentRecipeProduct.undeployedCount : 0;
+
+            var deployedCount = equippedCount + stockDeployedCount;
+            // update text
+            self.set('undeployedCount', stockUndeployedCount);
+            self.set('deployedCount', deployedCount);
         }
     },
 
@@ -223,4 +196,39 @@ App.StonehearthWorkshopInventoryDisplayView = App.View.extend({
 
         craftWindow.append(inventoryWindow);
     },
+
+    startTracking: function() {
+        var self = this;
+        if(!self.basicInventoryTrace) {
+            //init the inventory and usable object trackers
+            radiant.call_obj('stonehearth.inventory', 'get_item_tracker_command', 'stonehearth:basic_inventory_tracker')
+                .done(function (response) {
+                    self.basicInventoryTrace = new StonehearthDataTrace(response.tracker, self.itemTraces)
+                        .progress(function (response) {
+                            radiant.each(response.tracking_data, function (uri, item) {
+                                var rootUri = item.canonical_uri || uri;
+                                var isIconic = false;
+                                var catalogData = App.catalog.getCatalogData(uri);
+                                if ((item.canonical_uri && item.canonical_uri !== item.uri) || (catalogData && catalogData['is_item'])) {
+                                    isIconic = true;
+                                }
+
+                                self._addItemToInventory(rootUri, item, isIconic, self.inventoryItems.stockedItems);
+                            });
+                            self._updateInventoryDisplay();
+                        });
+                })
+                .fail(function (response) {
+                    console.error(response);
+                });
+        }
+    },
+
+    stopTracking: $.debounce(1, function () {
+        var self = this;
+        if(self.basicInventoryTrace) {
+            self.basicInventoryTrace.destroy();
+            self.basicInventoryTrace = null;
+        }
+    })
 });
